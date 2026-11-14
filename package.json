@@ -1,0 +1,31 @@
+{
+  "name": "nextjs-better-auth-entra-id",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "db:migrate": "auth migrate --config lib/auth.ts --yes",
+    "mock-idp": "node mock-idp/server.mjs",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "node scripts/e2e.mjs"
+  },
+  "dependencies": {
+    "better-auth": "1.7.23",
+    "better-sqlite3": "13.2.0",
+    "jose": "6.2.17",
+    "next": "16.4.6",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/better-sqlite3": "9.6.0",
+    "@types/node": "22",
+    "@types/react": "19.3.0",
+    "auth": "1.7.23",
+    "typescript": "7.0.2"
+  }
+}
