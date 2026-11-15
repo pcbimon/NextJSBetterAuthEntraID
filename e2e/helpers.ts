@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import Database from "better-sqlite3";
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -36,6 +36,8 @@ export interface MockUser {
   name: string;
   preferred_username: string;
   email: string;
+  ppid: string;
+  windowsaccountname: string;
 }
 
 export interface IdpLogEntry {
@@ -66,6 +68,8 @@ export function uniqueUser(): MockUser {
     name: `Test ${handle}`,
     preferred_username: `${handle}@contoso.example`,
     email: `${handle}.mail@contoso.example`,
+    ppid: String(randomInt(10_000_000, 100_000_000)),
+    windowsaccountname: handle.replace("-", "."),
   };
 }
 
@@ -91,7 +95,7 @@ export async function signOut(page: Page, app: AppUnderTest) {
 // ---------- database inspection ----------
 
 export interface Rows {
-  users: { id: string; email: string; name: string }[];
+  users: { id: string; email: string; name: string; ppid: string | null; username: string | null }[];
   accounts: { id: string; userId: string; providerId: string; accountId: string }[];
   sessions: { id: string; userId: string }[];
 }
@@ -100,7 +104,9 @@ export interface Rows {
 export function rowsForEmail(app: AppUnderTest, email: string): Rows {
   const db = new Database(app.dbPath, { readonly: true, fileMustExist: true });
   try {
-    const users = db.prepare(`SELECT id, email, name FROM "user" WHERE email = ?`).all(email) as Rows["users"];
+    const users = db
+      .prepare(`SELECT id, email, name, ppid, username FROM "user" WHERE email = ?`)
+      .all(email) as Rows["users"];
     const ids = users.map((u) => u.id);
     const placeholders = ids.map(() => "?").join(",") || "NULL";
     const accounts = db
