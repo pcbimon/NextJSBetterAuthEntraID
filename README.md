@@ -43,7 +43,7 @@
 | Playwright (`@playwright/test`) | 1.63.0 |
 | Mock Entra IdP | `http://127.0.0.1:4011` |
 
-> **หมายเหตุเรื่อง Better Auth เวอร์ชันนี้** บทความหรือเอกสารเก่าหลายแห่งพูดถึง callback `/api/auth/oauth2/callback/:id` และการเรียก `signIn.oauth2` ซึ่ง **ใช้ไม่ได้แล้วใน Better Auth 1.7** callback เริ่มต้นของเวอร์ชันนี้คือ `{BETTER_AUTH_URL}/api/auth/callback/entra` และการ sign in เรียกผ่าน `authClient.signIn.social({ provider: "entra", ... })` (ดู `app/sign-in-button.tsx`)
+> **หมายเหตุเรื่อง Better Auth เวอร์ชันนี้** บทความหรือเอกสารเก่าหลายแห่งพูดถึง callback `/api/auth/oauth2/callback/:id` และการเรียก `signIn.oauth2` ซึ่ง **ใช้ไม่ได้แล้วใน Better Auth 1.7** callback เริ่มต้นของเวอร์ชันนี้คือ `{BETTER_AUTH_URL}/api/auth/callback/{providerId}` โดย `{providerId}` คือค่า `PROVIDER_ID` ใน `lib/env.ts` (ตอนนี้ตั้งเป็น `entra` จึงได้ `/api/auth/callback/entra` ตามที่เห็นใน log และ test) ถ้าเปลี่ยนค่านี้ ต้องลงทะเบียน redirect URI ใหม่ใน Entra ด้วย และการ sign in เรียกผ่าน `authClient.signIn.social({ provider: "entra", ... })` (ดู `app/sign-in-button.tsx`)
 
 ---
 
@@ -53,7 +53,7 @@
 
 **คำตอบ: ใช้ได้ ไม่ว่า path ที่ลงทะเบียนไว้จะเป็นอะไรก็ตาม** มีสองทางที่ถูกต้อง:
 
-- **ทาง A** ให้ผู้ดูแลลงทะเบียน (เพิ่ม) URL เริ่มต้นของ Better Auth คือ `{BETTER_AUTH_URL}/api/auth/callback/entra` แล้วไม่ต้องตั้ง `ENTRA_REDIRECT_URI`
+- **ทาง A** ให้ผู้ดูแลลงทะเบียน (เพิ่ม) URL เริ่มต้นของ Better Auth คือ `{BETTER_AUTH_URL}/api/auth/callback/{providerId}` แล้วไม่ต้องตั้ง `ENTRA_REDIRECT_URI`
 - **ทาง B** ใช้ URL ที่ผู้ดูแลลงทะเบียนไว้แล้ว เช่น `https://app.example.com/signin-oidc` โดยตั้ง `ENTRA_REDIRECT_URI` เป็นค่านั้นทุกตัวอักษร โปรเจกต์นี้จะส่งค่าดังกล่าวเป็น `redirect_uri` ทั้งใน authorize request และ token request และใช้ `proxy.ts` รับ callback ที่ path นั้นแล้วส่งต่อให้ Better Auth เอง ไม่ต้องแก้โค้ด
 
 กติกาที่ต้องตรงกันไม่ว่าจะเลือกทางไหน:
@@ -94,7 +94,7 @@ sequenceDiagram
     E->>E: ผู้ใช้ล็อกอินและยินยอม
     E-->>B: 302 redirect_uri?code=...&state=...
     Note over B,A: Microsoft doc: Successful response
-    B->>A: GET redirect_uri (default: /api/auth/callback/entra<br/>หรือ path ใน ENTRA_REDIRECT_URI ผ่าน proxy.ts)
+    B->>A: GET redirect_uri (default: /api/auth/callback/{providerId}<br/>หรือ path ใน ENTRA_REDIRECT_URI ผ่าน proxy.ts)
     A->>A: ตรวจ state ตรงกับที่สร้างไว้ (ไม่ตรง = state_mismatch)
     Note over A,E: Microsoft doc: Request an access token
     A->>E: POST /token grant_type=authorization_code<br/>code, redirect_uri, code_verifier, client_id, client_secret
@@ -119,7 +119,7 @@ sequenceDiagram
 | ตรวจ id_token | ตรวจ signature, issuer, audience, nonce (`requireIdTokenVerification: true` คือห้ามถอยไป decode แบบไม่ตรวจ) แล้วถึงเรียก `getUserInfo` | `lib/auth.ts` |
 | สร้าง session | บันทึก user/account/session ลง SQLite และตั้ง cookie แล้ว redirect ไป `/dashboard` | `lib/auth.ts`, `app/dashboard/page.tsx` |
 
-ทำไมต้องมี `proxy.ts` ในทาง B: Better Auth ใช้ path ของ request ที่เข้ามาเพื่อเลือก endpoint ถ้าใช้ rewrite ใน `next.config` ให้ `/signin-oidc` ไปที่ `/api/auth/callback/entra` handler จะยังเห็น path เดิมและตอบ **404** เพราะฉะนั้น `lib/callback-forward.ts` จึงสร้าง `Request` ใหม่ที่ชี้ไป `/api/auth/callback/entra` (คง query string `code`/`state` ไว้) แล้วเรียก `getAuth().handler(...)` ตรง ๆ และส่ง response (302 + Set-Cookie) กลับไปตามเดิม โดยแปลง `Location` ที่เป็น relative ให้เป็น absolute เพราะ Next.js ไม่ยอมรับ relative `Location` จาก `proxy.ts` (Next 16 เปลี่ยนชื่อ middleware เป็น `proxy`)
+ทำไมต้องมี `proxy.ts` ในทาง B: Better Auth ใช้ path ของ request ที่เข้ามาเพื่อเลือก endpoint ถ้าใช้ rewrite ใน `next.config` ให้ `/signin-oidc` ไปที่ `/api/auth/callback/{providerId}` handler จะยังเห็น path เดิมและตอบ **404** เพราะฉะนั้น `lib/callback-forward.ts` จึงสร้าง `Request` ใหม่ที่ชี้ไป `/api/auth/callback/{providerId}` (คง query string `code`/`state` ไว้) แล้วเรียก `getAuth().handler(...)` ตรง ๆ และส่ง response (302 + Set-Cookie) กลับไปตามเดิม โดยแปลง `Location` ที่เป็น relative ให้เป็น absolute เพราะ Next.js ไม่ยอมรับ relative `Location` จาก `proxy.ts` (Next 16 เปลี่ยนชื่อ middleware เป็น `proxy`)
 
 ---
 
@@ -198,7 +198,7 @@ curl -X POST http://127.0.0.1:4011/__reset            # คืนค่า defau
 
 | ค่าที่ได้จากผู้ดูแล | ตัวแปรใน `.env` | จำเป็นไหม | ตัวอย่างรูปแบบค่าจริง |
 | --- | --- | --- | --- |
-| Callback URL | `ENTRA_REDIRECT_URI` (และเอา origin ไปใส่ `BETTER_AUTH_URL`) | ไม่จำเป็น: ไม่ตั้ง = ใช้ `{BETTER_AUTH_URL}/api/auth/callback/entra` | `https://app.example.com/signin-oidc` |
+| Callback URL | `ENTRA_REDIRECT_URI` (และเอา origin ไปใส่ `BETTER_AUTH_URL`) | ไม่จำเป็น: ไม่ตั้ง = ใช้ `{BETTER_AUTH_URL}/api/auth/callback/{providerId}` | `https://app.example.com/signin-oidc` |
 | Client ID | `ENTRA_CLIENT_ID` | จำเป็น | `<application-client-id-guid>` เช่น `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee` |
 | Client Secret | `ENTRA_CLIENT_SECRET` | จำเป็น | ต้องเป็น **secret value** (ไม่ใช่ secret ID) จากหน้า "Certificates & secrets" |
 | OpenID Metadata | `ENTRA_DISCOVERY_URL` | จำเป็น | `https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration` |
@@ -228,7 +228,7 @@ curl -X POST http://127.0.0.1:4011/__reset            # คืนค่า defau
 | | ทาง A: ใช้ URL เริ่มต้นของ Better Auth | ทาง B: ใช้ URL ที่ผู้ดูแลลงทะเบียนไว้ |
 | --- | --- | --- |
 | `ENTRA_REDIRECT_URI` | ไม่ตั้ง | ตั้งเป็น URL ที่ลงทะเบียนไว้ทุกตัวอักษร |
-| URL ที่ต้องลงทะเบียนใน Entra | `{BETTER_AUTH_URL}/api/auth/callback/entra` | URL เดิมของผู้ดูแล |
+| URL ที่ต้องลงทะเบียนใน Entra | `{BETTER_AUTH_URL}/api/auth/callback/{providerId}` | URL เดิมของผู้ดูแล |
 | ต้องให้ผู้ดูแลทำอะไร | เพิ่ม redirect URI ใหม่ (platform Web) | ไม่ต้องทำอะไรเพิ่ม |
 | โค้ดที่ทำงาน | Better Auth รับ callback ตรง ๆ | `proxy.ts` + `lib/callback-forward.ts` ส่งต่อให้ Better Auth |
 | ข้อจำกัด | ต้องรอผู้ดูแล | origin ต้องเท่ากับ `BETTER_AUTH_URL`, ไม่มี query/fragment |
@@ -381,7 +381,7 @@ Mock IdP ปรับค่าได้ด้วย env: `MOCK_IDP_HOST` (defaul
 | `[config] ENTRA_REDIRECT_URI origin (...) must match BETTER_AUTH_URL origin (...)` | origin ไม่ตรงกัน | แก้ให้ scheme/host/port ตรงกัน |
 | `429 Too Many Requests` | rate limiter ของ Better Auth เปิดอยู่ใน production (กดซ้ำหลายครั้งในเวลาสั้น ๆ) | รอสักครู่แล้วลองใหม่ (`AUTH_RATE_LIMIT=off` ใช้เฉพาะตอนทดสอบ ห้ามใช้ใน production) |
 | 404 ที่ path callback แบบกำหนดเอง (เช่น `/signin-oidc`) | ใช้ rewrite ใน `next.config` แทน forwarder, หรือไม่มี `proxy.ts`, หรือ path ใน `ENTRA_REDIRECT_URI` ไม่ตรงกับ path ที่ Entra redirect มา | ใช้ `proxy.ts` + `lib/callback-forward.ts` ตามที่โปรเจกต์นี้ทำ และตรวจว่า path ตรงกัน |
-| 404 ที่ `/api/auth/oauth2/callback/entra` | ใช้ path ของ Better Auth เวอร์ชันเก่า | path ที่ถูกของ 1.7 คือ `/api/auth/callback/entra` (หรือ path ของ `ENTRA_REDIRECT_URI`) |
+| 404 ที่ `/api/auth/oauth2/callback/{providerId}` | ใช้ path ของ Better Auth เวอร์ชันเก่า | path ที่ถูกของ 1.7 คือ `/api/auth/callback/{providerId}` (หรือ path ของ `ENTRA_REDIRECT_URI`) |
 
 error code ที่แอปนี้แสดงบนหน้าแรก (นิยามใน `app/sign-in-errors.ts`) รหัสอื่นที่ไม่อยู่ในตารางจะแสดงข้อความ "Sign-in failed. Please try again." พร้อม `Error code` ให้ดู
 
@@ -413,7 +413,7 @@ error code ที่แอปนี้แสดงบนหน้าแรก (�
 │   ├── claims.ts                 อ่าน claims ของผู้ใช้ (ppid, windowsaccountname, email, Name ID) จาก id_token
 │   ├── auth.ts                   ตั้งค่า Better Auth + genericOAuth (providerId "entra")
 │   ├── auth-client.ts            authClient สำหรับฝั่ง browser
-│   └── callback-forward.ts       ส่งต่อ request จาก custom callback path ไป /api/auth/callback/entra
+│   └── callback-forward.ts       ส่งต่อ request จาก custom callback path ไป /api/auth/callback/{providerId}
 ├── app/
 │   ├── layout.tsx                layout หลัก
 │   ├── globals.css               สไตล์
