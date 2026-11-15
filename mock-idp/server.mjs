@@ -15,8 +15,12 @@
  *   POST /__reset    restore default behavior, clear log and codes
  *
  * Behavior keys for POST /__config:
- *   user            { oid, name, preferred_username, email }  signed-in user
- *   omitEmail       true -> id_token has no `email` claim (common in Entra)
+ *   user            { oid, name, preferred_username, email, ppid, windowsaccountname }
+ *                   signed-in user; the id_token carries ppid, nameid (= email),
+ *                   windowsaccountname and email
+ *   omitEmail       true -> id_token has no `email` claim (nameid still carries it)
+ *   omitPpid        true -> id_token has no `ppid` claim (the app must reject it)
+ *   claimStyle      "short" (ppid, nameid, ...) or "uri" (full ClaimType URIs)
  *   authorizeError  e.g. "access_denied" -> /authorize redirects with that error
  *   clientSecret    secret the token endpoint expects (simulate a wrong secret)
  *   tamperState     true -> /authorize returns a modified `state`
@@ -50,8 +54,12 @@ const DEFAULTS = Object.freeze({
     name: "Ada Lovelace",
     preferred_username: "ada@contoso.example",
     email: "ada@contoso.example",
+    ppid: "10203040",
+    windowsaccountname: "ada.love",
   },
   omitEmail: false,
+  omitPpid: false,
+  claimStyle: "short",
   authorizeError: null,
   clientSecret: CLIENT_SECRET,
   tamperState: false,
@@ -142,14 +150,29 @@ function pairwiseSub(user, clientId) {
   return crypto.createHash("sha256").update(`${user.oid}:${clientId}`).digest("base64url").slice(0, 43);
 }
 
+// The university claims, under their JWT short names or their full ClaimType URIs.
+const CLAIM_NAMES = {
+  short: { ppid: "ppid", nameId: "nameid", username: "windowsaccountname", email: "email" },
+  uri: {
+    ppid: "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/ppid",
+    nameId: "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier",
+    username: "http://schemas.microsoft.com/ws/2008/06/identity/claims/windowsaccountname",
+    email: "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
+  },
+};
+
 async function issueTokens({ user, clientId, scope, nonce }) {
+  const names = CLAIM_NAMES[config.claimStyle] ?? CLAIM_NAMES.short;
   const claims = {
     ver: "2.0",
     tid: TENANT,
     oid: user.oid,
     name: user.name,
     preferred_username: user.preferred_username,
-    ...(config.omitEmail || !user.email ? {} : { email: user.email }),
+    ...(config.omitPpid ? {} : { [names.ppid]: user.ppid }),
+    [names.nameId]: user.email,
+    [names.username]: user.windowsaccountname,
+    ...(config.omitEmail || !user.email ? {} : { [names.email]: user.email }),
     ...(nonce ? { nonce } : {}),
     aio: crypto.randomBytes(16).toString("base64url"),
     uti: crypto.randomBytes(12).toString("base64url"),
@@ -192,7 +215,7 @@ function discovery(res) {
     id_token_signing_alg_values_supported: ["RS256"],
     token_endpoint_auth_methods_supported: ["client_secret_post", "private_key_jwt", "client_secret_basic"],
     code_challenge_methods_supported: ["plain", "S256"],
-    claims_supported: ["sub", "iss", "aud", "exp", "iat", "nbf", "nonce", "name", "preferred_username", "email", "oid", "tid", "ver"],
+    claims_supported: ["sub", "iss", "aud", "exp", "iat", "nbf", "nonce", "name", "preferred_username", "email", "oid", "tid", "ver", "ppid", "nameid", "windowsaccountname"],
     tenant_region_scope: "EU",
     cloud_instance_name: "mock.microsoftonline.example",
   });

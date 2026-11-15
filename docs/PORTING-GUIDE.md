@@ -69,7 +69,8 @@ Copy ไฟล์เหล่านี้จากโปรเจกต์ตั
 | ไฟล์ | ทำอะไร | ต้อง copy ไหม |
 | --- | --- | --- |
 | `lib/env.ts` | อ่านและตรวจ env แบบ lazy (ไม่พังตอน `next build`) คำนวณ redirect URI และมี `PROVIDER_ID = "entra"`, `AUTH_BASE_PATH = "/api/auth"` | ต้อง |
-| `lib/auth.ts` | ตั้งค่า `betterAuth` + `genericOAuth` (verify id_token, สร้าง profile จาก claims, `oid` เป็น account id, `disableProviderLogout`) และ export `auth` แบบ lazy | ต้อง |
+| `lib/claims.ts` | อ่าน claims ของผู้ใช้ (`ppid`, `windowsaccountname`, `email`, Name ID) จาก id_token ทั้งแบบชื่อสั้นและ ClaimType URI | ต้อง |
+| `lib/auth.ts` | ตั้งค่า `betterAuth` + `genericOAuth` (verify id_token, สร้าง profile จาก claims, `ppid` เป็น account id, `disableProviderLogout`) และ export `auth` แบบ lazy | ต้อง |
 | `lib/auth-client.ts` | `createAuthClient()` สำหรับ client component | ต้อง |
 | `app/api/auth/[...all]/route.ts` | `export const { GET, POST } = toNextJsHandler(auth);` | ต้อง |
 | `lib/callback-forward.ts` | ส่งต่อ callback จาก path ที่กำหนดเองให้ Better Auth | ต้อง ถ้าใช้ `ENTRA_REDIRECT_URI` ที่ path ไม่ใช่ default |
@@ -188,9 +189,11 @@ await authClient.signOut();       // ล้างเฉพาะ session ขอ�
 | --- | --- |
 | `requireIdTokenVerification: true` | ห้ามถอยไป decode id_token แบบไม่ verify |
 | `pkce: true` | ใช้ PKCE (S256) |
-| `getUserInfo` จาก id_token | userinfo ของ Entra อยู่บน Microsoft Graph และมี claim น้อย |
-| `emailVerified: false` | Entra ไม่ส่ง `email_verified` |
-| `accountSubject` = `oid` | `oid` คงที่ทั้ง tenant ส่วน `sub` เป็น pairwise ต่อแอป |
+| `getUserInfo` จาก id_token | IdP ใส่ `ppid`, `windowsaccountname`, `email` ไว้ใน id_token (อ่านด้วย `lib/claims.ts`) |
+| `emailVerified: false` | IdP ไม่ส่ง `email_verified` |
+| `accountSubject` = `ppid` | `ppid` (HRI_ID / Student_ID) คงที่ของบุคคล ส่วน `sub` เป็น pairwise ต่อแอป |
+| `user.additionalFields` (`ppid`, `username`) + `mapProfileToUser` | เก็บ claims ลง `user` ต้องรัน `npm run db:migrate` เพื่อเพิ่มคอลัมน์ และห้ามตั้ง `input: false` (Better Auth จะไม่คัดลอกค่าให้) |
+| `disabledPaths: ["/update-user"]` | ไม่ให้ผู้ใช้ที่ล็อกอินแก้ `ppid`/`username` ของตัวเองผ่าน API |
 | `disableProviderLogout: true` | Sign out ล้างเฉพาะ session ของแอป ไม่พาไป logout ทั้งระบบของ Microsoft |
 | `nextCookies()` เป็น plugin สุดท้าย | ให้ cookie ถูกตั้งได้จาก Server Action/Route Handler |
 

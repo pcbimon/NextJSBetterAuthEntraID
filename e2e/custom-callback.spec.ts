@@ -20,7 +20,7 @@ test.describe("custom callback path (ENTRA_REDIRECT_URI)", () => {
     expect(token?.outcome).toBe("tokens issued");
 
     const rows = rowsForEmail(app, user.email);
-    expect(rows.accounts).toEqual([expect.objectContaining({ providerId: "entra", accountId: user.oid })]);
+    expect(rows.accounts).toEqual([expect.objectContaining({ providerId: "entra", accountId: user.ppid })]);
     expect(rows.sessions).toHaveLength(1);
 
     await signOut(page, app);

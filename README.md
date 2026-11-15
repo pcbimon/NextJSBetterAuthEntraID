@@ -22,7 +22,7 @@
 
 ## 1. ภาพรวม
 
-โปรเจกต์นี้คือแอปเล็ก ๆ ที่มีสองหน้า คือหน้าแรก (`/`) ที่มีปุ่ม "Sign in with Microsoft" และหน้า `/dashboard` ที่แสดงชื่อ อีเมล Entra object ID และเวลาหมดอายุของ session เมื่อกด Sign in ระบบจะพาไปล็อกอินที่ Microsoft Entra ID แล้วกลับมาสร้าง session ให้ ข้อมูล user, account และ session ถูกเก็บใน SQLite
+โปรเจกต์นี้คือแอปเล็ก ๆ ที่มีสองหน้า คือหน้าแรก (`/`) ที่มีปุ่ม "Sign in with Microsoft" และหน้า `/dashboard` ที่แสดงชื่อ อีเมล ppid (HRI_ID หรือ Student_ID) username และเวลาหมดอายุของ session เมื่อกด Sign in ระบบจะพาไปล็อกอินที่ Microsoft Entra ID แล้วกลับมาสร้าง session ให้ ข้อมูล user, account และ session ถูกเก็บใน SQLite
 
 สิ่งที่คุณจะได้จากโปรเจกต์นี้:
 
@@ -100,7 +100,7 @@ sequenceDiagram
     A->>E: POST /token grant_type=authorization_code<br/>code, redirect_uri, code_verifier, client_id, client_secret
     E-->>A: access_token, id_token, refresh_token (เมื่อมี offline_access)
     A->>A: verify id_token: signature (JWKS), issuer, audience, nonce
-    A->>A: getUserInfo: อ่าน claims จาก id_token (oid, email หรือ preferred_username, name)
+    A->>A: getUserInfo: อ่าน claims จาก id_token (ppid, email หรือ Name ID, windowsaccountname, name)
     A->>D: สร้าง/อัปเดต user + account, สร้าง session
     A-->>B: 302 /dashboard พร้อม Set-Cookie (session)
     B->>A: GET /dashboard
@@ -159,7 +159,7 @@ npm run dev
 
 ตอน `npm run dev` start คุณควรเห็นบรรทัด `[auth] Redirect URI in effect (register this in Entra ID): http://localhost:3000/api/auth/callback/entra`
 
-จากนั้นเปิด <http://localhost:3000> (ใช้ `localhost` ไม่ใช่ `127.0.0.1` เพราะ cookie ผูกกับ host ที่คุณเปิดใน browser ถ้าเปิดคนละ host กับ `BETTER_AUTH_URL` จะเกิด `state_mismatch`) กดปุ่ม **Sign in with Microsoft** แล้วคุณควรถูกพากลับมาที่ `/dashboard` พร้อมข้อมูลของ Ada Lovelace (Name, Email `ada@contoso.example`, Entra object ID `9f8e7d6c-5b4a-3210-fedc-ba9876543210`, เวลา Session expires) ส่วน terminal ของ Mock IdP จะพิมพ์ `authorize -> code issued` และ `token -> tokens issued` พร้อม `redirect_uri=` ที่ใช้
+จากนั้นเปิด <http://localhost:3000> (ใช้ `localhost` ไม่ใช่ `127.0.0.1` เพราะ cookie ผูกกับ host ที่คุณเปิดใน browser ถ้าเปิดคนละ host กับ `BETTER_AUTH_URL` จะเกิด `state_mismatch`) กดปุ่ม **Sign in with Microsoft** แล้วคุณควรถูกพากลับมาที่ `/dashboard` พร้อมข้อมูลของ Ada Lovelace (Name, Email `ada@contoso.example`, PPID `10203040`, Username `ada.love`, เวลา Session expires) ส่วน terminal ของ Mock IdP จะพิมพ์ `authorize -> code issued` และ `token -> tokens issued` พร้อม `redirect_uri=` ที่ใช้
 
 ### ดูข้อมูลใน SQLite
 
@@ -180,7 +180,7 @@ sqlite3 -header -column dev.db 'SELECT id, userId, expiresAt FROM "session";'
 node --input-type=module -e 'import D from "better-sqlite3"; const db = new D("dev.db", { readonly: true }); for (const t of ["user", "account", "session"]) { console.log(t); console.table(db.prepare(`SELECT * FROM "${t}"`).all()); }'
 ```
 
-สิ่งที่ควรเห็นหลัง sign in หนึ่งครั้ง: `user` 1 แถว, `account` 1 แถวที่ `providerId = entra` และ `accountId` เท่ากับ `oid` ของผู้ใช้ (ในตารางนี้ `account` ยังเก็บ token ของ provider ด้วย จึงอย่า print ทั้งแถวในที่สาธารณะ) และ `session` 1 แถว เมื่อกด Sign out แถว `session` จะหาย ส่วน `user` กับ `account` ยังอยู่ และถ้า sign in ซ้ำจะใช้ `user`/`account` เดิม
+สิ่งที่ควรเห็นหลัง sign in หนึ่งครั้ง: `user` 1 แถว, `account` 1 แถวที่ `providerId = entra` และ `accountId` เท่ากับ `ppid` ของผู้ใช้ (แถว `user` มีคอลัมน์ `ppid` และ `username` ด้วย ในตาราง `account` `account` ยังเก็บ token ของ provider ด้วย จึงอย่า print ทั้งแถวในที่สาธารณะ) และ `session` 1 แถว เมื่อกด Sign out แถว `session` จะหาย ส่วน `user` กับ `account` ยังอยู่ และถ้า sign in ซ้ำจะใช้ `user`/`account` เดิม
 
 ### ลองแก้พฤติกรรมของ Mock IdP
 
@@ -291,7 +291,7 @@ ENTRA_REDIRECT_URI=http://localhost:3000/signin-oidc
 > 3. **Client secret** ขอเป็น *secret value* (ไม่ใช่ secret ID) พร้อมวันหมดอายุ
 > 4. **OpenID Connect metadata document** แบบ tenant-specific คือ `https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration` (ไม่ใช้ `common` หรือ `organizations`)
 > 5. **Scopes / permissions**: `openid profile email offline_access` (delegated) และถ้าต้อง admin consent ช่วย grant ให้ด้วย
-> 6. (ถ้าทำได้) เพิ่ม optional claim **`email`** ใน ID token เพราะบัญชีหลายประเภทไม่ส่ง email มา (ถ้าไม่มี แอปจะใช้ `preferred_username` แทน)
+> 6. **Claims ใน ID token**: ขอให้ส่ง claim `ppid` (HRI_ID สำหรับบุคลากร / Student_ID สำหรับนักศึกษา), `windowsaccountname` และ `email` ใน **ID token** (ไม่ใช่แค่ access token) ถ้าไม่มี `email` แอปจะใช้ claim Name ID (ซึ่งคืนค่าอีเมล) แทน ส่วนถ้าไม่มี `ppid` แอปจะปฏิเสธการ sign-in
 > 7. (ไม่บังคับ) Authorize endpoint และ Token endpoint ที่ใช้อยู่ ผมจะตรวจเทียบกับ metadata document
 >
 > ขอบคุณครับ/ค่ะ
@@ -300,9 +300,12 @@ ENTRA_REDIRECT_URI=http://localhost:3000/signin-oidc
 
 | เรื่อง | สิ่งที่โค้ดทำ |
 | --- | --- |
-| email | ใช้ claim `email` ก่อน ถ้าไม่มีใช้ `preferred_username` ถ้าไม่มีทั้งคู่ผู้ใช้จะได้ error `email_not_found` |
+| email | ใช้ claim `email` ก่อน ถ้าไม่มีใช้ Name ID (`nameid`) ถ้าไม่มีทั้งคู่ผู้ใช้จะได้ error `email_not_found` |
 | emailVerified | ตั้งเป็น `false` เสมอ เพราะ Entra ไม่ส่ง `email_verified` |
-| account id | ใช้ claim `oid` (immutable ภายใน tenant) ไม่ใช้ `sub` ซึ่งเป็น pairwise ต่อแอป |
+| account id | ใช้ claim `ppid` (HRI_ID / Student_ID) ไม่ใช้ `sub` ซึ่งเป็น pairwise ต่อแอป ถ้าไม่มี `ppid` จะปฏิเสธการ sign-in (`unable_to_get_user_info`) แทนที่จะเดาจาก claim อื่น |
+| username | เก็บ claim `windowsaccountname` (name.sur ของบุคลากร / u69xxxxx, g69xxxxx ของนักศึกษา) ลงคอลัมน์ `user.username` และเก็บ `ppid` ลง `user.ppid` ด้วย ทั้งสองค่าอัปเดตทุกครั้งที่ sign-in |
+| ชื่อ claim | อ่านได้ทั้งแบบชื่อสั้น (`ppid`, `nameid`, `windowsaccountname`, `email`) และแบบ ClaimType URI เต็ม (`http://schemas.xmlsoap.org/ws/2005/05/identity/claims/ppid` ฯลฯ) ดูใน `lib/claims.ts` |
+| ห้ามแก้ ppid จาก client | field ที่ map จาก provider ต้องไม่ตั้ง `input: false` (ไม่งั้น Better Auth ไม่ยอมคัดลอกค่าให้) จึงปิด endpoint `/update-user` ผ่าน `disabledPaths` เพื่อไม่ให้ผู้ใช้ที่ล็อกอินแก้ `ppid`/`username` ของตัวเองได้ (มี e2e ตรวจ) |
 | userinfo | ไม่เรียก userinfo (ของ Entra อยู่บน Microsoft Graph และมี claim น้อย) อ่านจาก id_token ที่ verify แล้ว |
 | Sign out | ล้างเฉพาะ session ของแอป (`disableProviderLogout: true`) session SSO ของ Microsoft ยังอยู่ จึงอาจ sign in ซ้ำได้โดยไม่ถามรหัสผ่าน |
 
@@ -325,24 +328,28 @@ npm run test:e2e
 5. start แอปสองตัวด้วย `next start`: `http://localhost:3100` (callback default) และ `http://localhost:3101` (`ENTRA_REDIRECT_URI=http://localhost:3101/signin-oidc`) ทั้งคู่ตั้ง `AUTH_RATE_LIMIT=off`
 6. รัน Playwright (1 worker, Desktop Chrome)
 
-**11 scenarios**
+**15 scenarios**
 
-`e2e/default-callback.spec.ts` (10 ข้อ):
+`e2e/default-callback.spec.ts` (14 ข้อ):
 
 1. sign-in ถึง dashboard และใช้ `redirect_uri` เดียวกันทั้งสอง request (ตรวจ `response_type=code`, PKCE S256, `code_verifier` ถูก redact)
 2. SQLite มีแถว user, account, session หลัง sign-in
 3. session ยังอยู่หลัง reload
 4. sign-out ลบ session และ `/dashboard` ถูกป้องกันอีกครั้ง
 5. ผู้เยี่ยมชมที่ยังไม่ล็อกอินถูก redirect จาก `/dashboard` ไป `/`
-6. id_token ไม่มี email -> fallback เป็น `preferred_username`
-7. client secret ผิด -> แสดง error อ่านรู้เรื่องและไม่สร้าง session
-8. IdP ส่ง `error=access_denied` -> แสดง error อ่านรู้เรื่อง ไม่มี token request
-9. `state` ถูกแก้ไข -> ปฏิเสธ ไม่สร้าง session และไม่เรียก token endpoint
-10. sign-in ครั้งที่สองใช้ user และ account เดิม แต่ session ใหม่
+6. id_token ไม่มี `email` -> fallback เป็น Name ID
+7. claim ที่ส่งมาเป็น ClaimType URI เต็ม -> อ่านได้เหมือนกัน
+8. id_token ไม่มี `ppid` -> ปฏิเสธ ไม่สร้าง session
+9. ผู้ใช้ที่ล็อกอินแล้วแก้ `ppid`/`username` ผ่าน `/update-user` ไม่ได้ (404 และค่าใน DB ไม่เปลี่ยน)
+10. เปลี่ยนชื่อ/username ที่ IdP แล้ว sign-in ใหม่ -> ค่าใน `user` อัปเดต แต่ยังเป็น user และ account เดิม
+11. client secret ผิด -> แสดง error อ่านรู้เรื่องและไม่สร้าง session
+12. IdP ส่ง `error=access_denied` -> แสดง error อ่านรู้เรื่อง ไม่มี token request
+13. `state` ถูกแก้ไข -> ปฏิเสธ ไม่สร้าง session และไม่เรียก token endpoint
+14. sign-in ครั้งที่สองใช้ user และ account เดิม แต่ session ใหม่
 
 `e2e/custom-callback.spec.ts` (1 ข้อ):
 
-11. sign-in ผ่าน `/signin-oidc` โดย `redirect_uri` เป็น path นั้นทั้งใน authorize และ token request และ sign-out ลบ session
+15. sign-in ผ่าน `/signin-oidc` โดย `redirect_uri` เป็น path นั้นทั้งใน authorize และ token request และ sign-out ลบ session
 
 **Control endpoints ของ Mock IdP** (`http://127.0.0.1:4011`)
 
@@ -350,7 +357,7 @@ npm run test:e2e
 | --- | --- |
 | `GET /__log` | request ที่ `/authorize` และ `/token` เห็น (ปิดบัง `client_secret`, `code_verifier`, `refresh_token`) |
 | `GET /__config` | ดูพฤติกรรมปัจจุบัน |
-| `POST /__config` | merge JSON เข้า config: `user` (`oid`, `name`, `preferred_username`, `email`), `omitEmail`, `authorizeError` (เช่น `"access_denied"`), `clientSecret`, `tamperState` |
+| `POST /__config` | merge JSON เข้า config: `user` (`oid`, `name`, `preferred_username`, `email`, `ppid`, `windowsaccountname`), `omitEmail`, `omitPpid`, `claimStyle` (`"short"` หรือ `"uri"`), `authorizeError` (เช่น `"access_denied"`), `clientSecret`, `tamperState` |
 | `POST /__reset` | คืนค่า default ล้าง log และ code |
 
 Mock IdP ปรับค่าได้ด้วย env: `MOCK_IDP_HOST` (default `127.0.0.1`), `MOCK_IDP_PORT` (default `4011`), `MOCK_IDP_TENANT_ID`, `MOCK_IDP_CLIENT_ID`, `MOCK_IDP_CLIENT_SECRET`
@@ -385,8 +392,8 @@ error code ที่แอปนี้แสดงบนหน้าแรก (�
 | `state_mismatch` | ตรวจ state ไม่ผ่าน | ดูแถว `state_mismatch` ด้านบน |
 | `state_not_found` | ไม่พบ state | cookie หาย / host ไม่ตรง |
 | `please_restart_the_process` | คำขอหมดอายุหรือถูกแก้ไข | ลอง sign in ใหม่ |
-| `unable_to_get_user_info` | ตรวจ id_token ไม่ผ่านหรือไม่มี user | discovery URL แบบ tenant-specific, token ต้องเป็นของ Entra (มี claim `oid`) |
-| `email_not_found` | ไม่มี email และ username | ขอให้เพิ่ม optional claim `email` หรือตรวจว่าบัญชีมี `preferred_username` |
+| `unable_to_get_user_info` | ตรวจ id_token ไม่ผ่านหรือไม่มี claim `ppid` | discovery URL แบบ tenant-specific และขอให้ผู้ดูแลส่ง claim `ppid` ใน ID token |
+| `email_not_found` | ไม่มีทั้ง claim `email` และ Name ID | ขอให้ผู้ดูแลส่ง claim `email` (หรือ Name ID) ใน ID token |
 | `oauth_provider_not_found` | ไม่พบ provider Entra | ตรวจ `ENTRA_DISCOVERY_URL` และว่าเข้าถึง IdP ได้จาก server |
 
 ---
@@ -403,6 +410,7 @@ error code ที่แอปนี้แสดงบนหน้าแรก (�
 ├── playwright.config.ts          ตั้งค่า Playwright (1 worker)
 ├── lib/
 │   ├── env.ts                    อ่านและตรวจ env แบบ lazy พร้อมข้อความ error ชัดเจน
+│   ├── claims.ts                 อ่าน claims ของผู้ใช้ (ppid, windowsaccountname, email, Name ID) จาก id_token
 │   ├── auth.ts                   ตั้งค่า Better Auth + genericOAuth (providerId "entra")
 │   ├── auth-client.ts            authClient สำหรับฝั่ง browser
 │   └── callback-forward.ts       ส่งต่อ request จาก custom callback path ไป /api/auth/callback/entra
@@ -420,7 +428,7 @@ error code ที่แอปนี้แสดงบนหน้าแรก (�
 ├── scripts/e2e.mjs               สคริปต์รัน e2e ครบวงจร (npm run test:e2e)
 ├── e2e/
 │   ├── helpers.ts                ตัวช่วย: ควบคุม mock IdP, sign-in/out, อ่าน SQLite
-│   ├── default-callback.spec.ts  10 scenarios (callback default)
+│   ├── default-callback.spec.ts  14 scenarios (callback default)
 │   └── custom-callback.spec.ts   1 scenario (/signin-oidc)
 └── docs/PORTING-GUIDE.md         คู่มือนำไปใส่โปรเจกต์อื่น
 ```
